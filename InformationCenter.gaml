@@ -12,6 +12,7 @@ global {
 	int numberOfPeople <- 10;
 	int numberOfStores <- 2;
 	int numberOfInfos <- 1;
+	int numberOfAuctioneers <- 1;
 	int distanceThreshold <- 2;
 	graph the_graph;
 	point shopLocation;
@@ -24,6 +25,7 @@ global {
 		create Person number:numberOfPeople;
 		create Store number:numberOfStores;
 		create Info number:numberOfInfos;
+		create Auctioneer number:numberOfAuctioneers;
 		
 		//numbers for agents
 		loop counter from: 1 to: numberOfPeople {
@@ -40,6 +42,10 @@ global {
 			Info my_agent <- Info[counter - 1];
 			my_agent <- my_agent.setName(counter);
 		}
+		loop counter from: 1 to: numberOfAuctioneers {
+			Auctioneer my_agent <- Auctioneer[counter - 1];
+			my_agent <- my_agent.setName(counter);
+		}
 		
 		//random locations
 		loop p over: species(Person){
@@ -53,6 +59,10 @@ global {
 		
 		loop i over: species(Info){
 			i.location <- {rnd(0, 100), rnd(0, 100)};
+		}
+		
+		loop a over: species(Auctioneer){
+			a.location <- {rnd(0, 100), rnd(0, 100)};
 		}
 		
 		//foodLocation is a place where is food
@@ -101,6 +111,7 @@ species Person skills:[moving, fipa] {
 	point targetDLocation;
 	point targetBLocation;
 	string receivedContent;
+	int willingPrice;
 	
 	//number for Person
 	action setName(int num) {
@@ -181,6 +192,30 @@ species Person skills:[moving, fipa] {
 		    write targetBLocation;
 			noBLocation <- false;
 			write 'Heading to both';
+		}
+		
+	}
+	
+	
+	reflex auction when: !empty(proposes){
+		message msg <- proposes at 0;
+		list msgContent <- msg.contents as list;
+		string requestType <- msgContent at 0;
+		
+		if msgContent contains_any ["Start Auction"] {
+			int minDutch <- int(msgContent at 1);
+			willingPrice <- rnd(minDutch/5, minDutch/1.5);
+			write self.name + " is willing to pay " + willingPrice;
+		}
+		else if msgContent contains_any ["Current price is "] {
+			int curPrice <- int(msgContent at 1);
+			if curPrice > willingPrice{
+				do reject_proposal message: msg contents: ["No", self];
+			}
+			else {
+				write self.name + " accepts!";
+				do accept_proposal message: msg contents: ["yes", self];
+			}
 		}
 	}
 	
@@ -321,12 +356,66 @@ species Store {
 	}
 }
 
+species Auctioneer skills: 	[fipa]{
+	string aucName <- "undefined";
+	int reduction <- 5;
+	int minAskingPrice <- 500;
+	int curAskingPrice <- 1000;
+	Person winner <- nil;
+	bool auctionRunning <- false;
+	
+	
+	action setName(int num){
+		aucName <- "Auctioneer " + num;
+	}
+	
+	reflex startAuction when: every(4#h) {
+    write "Time for Auction!";
+    auctionRunning <- true;
+    winner <- nil;
+    curAskingPrice <- 1000;
+    do start_conversation to: list(Person) protocol: "no-protocol" performative: "propose" contents: ["Start Auction", curAskingPrice];
+    do start_conversation to: list(Person) protocol: "fipa-contract-net" performative: "propose" contents: ["Current price is ", curAskingPrice];
+}
+
+	
+	reflex handleResponses when: auctionRunning{
+    if !empty(accept_proposals) {
+        message m <- accept_proposals at 0;
+        winner <- m.sender;
+        write "Winner is " + winner + " at " + curAskingPrice + " $";
+        auctionRunning <- false;
+    }
+
+    if winner = nil and !empty(reject_proposals) {
+        curAskingPrice <- curAskingPrice - reduction;
+        write "Lowering price to " + curAskingPrice;
+
+        if curAskingPrice <= minAskingPrice {
+            write "No winner. Auction ended.";
+            auctionRunning <- false;
+        } else if auctionRunning{
+            do start_conversation to: list(Person) protocol: "fipa-contract-net" performative: "propose" contents: ["Current price is ", curAskingPrice];
+        }
+    }
+}
+
+	
+	
+	
+	aspect base{
+		rgb agentColor <- rgb("purple");
+		draw circle(1.5) color: agentColor border:#black;
+	}
+}
+
 experiment myExperiment type:gui {
 	output {
 		display myDisplay{
 			species Person aspect:base;
 			species Store aspect:base;
 			species Info aspect:base;
+			species Auctioneer aspect:base;
 		}
 	}
 }
