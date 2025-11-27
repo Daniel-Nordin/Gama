@@ -58,7 +58,7 @@ species Queen skills:[fipa]{
 	int x;
 	int y;
 	list tried <- [];
-	bool paused <- false;
+	bool active <- false;
 	list memory <- [];
 	
 	
@@ -74,14 +74,42 @@ species Queen skills:[fipa]{
 	}
 	
 	action checkPos{
-		if self.x < -2 {
-			self.x <- -1;
+		self.active <- true;
+		if self.memory contains_any self.x{
+			if length(self.tried) < numberOfQueens{
+				self.tried <- self.tried + self.x;
+				if self.x = numberOfQueens{
+					self.x <- -1;
+				}
+				write tried;
+				do setLocation(self.x + 1);
+				do checkPos;
+			}
+		
 		}
-		do start_conversation to: list(Queen) protocol: "fipa-contract-net" performative: "propose" contents: ["My coords", x, y];
+		else {
+			self.memory[self.y] <- self.x;
+			active <- false;
+			if self.y = numberOfQueens{
+				write "All done!";
+				break;
+			}
+			else {
+				do start_conversation to: Queen[self.y + 1] protocol: "no-contract" perfromative: "inform" contents: ["Memory", self.memory];
+			}
+		}
+		
+		//do start_conversation to: list(Queen) protocol: "fipa-contract-net" performative: "propose" contents: ["My coords", x, y];
 	}
 	
-	reflex requestedMove when: !empty(informs){
+	reflex updateMemory when: !empty(informs){
+		message msg <- proposes at 0;
+		list msgContent <- msg.contents as list;
+		string requestType <- msgContent at 0;
 		
+		if msgContent contains_any ["Memory"]{
+			self.memory <- list(msgContent at 1);
+		}
 	}
 	
 	reflex unavailablePos when: !empty(reject_proposals) and !paused{
